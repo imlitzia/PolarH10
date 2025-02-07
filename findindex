@@ -1,0 +1,64 @@
+import numpy as np
+import pandas as pd
+import neurokit2 as nk
+import matplotlib.pyplot as plt
+import tkinter as tk
+from tkinter import filedialog
+import os
+
+def chnk(lst, n, step):
+    """Yield successive n-sized chunks from lst."""
+    for i in range(0, len(lst)-n, step):
+        print(f'Chunking raw data ... {(i/len(lst))*100}%')
+        yield lst[i:i + n]
+
+def process_file(filepath):
+    try:
+        name = os.path.splitext(os.path.basename(filepath))[0]
+        df = pd.read_csv(filepath)
+        
+        if "ecg" not in df.columns:
+            raise ValueError(f"The file '{name}' does not contain an 'ecg' column.")
+        
+        raw = df["ecg"]
+        _SAMPLING_RATE = 100
+        _SAMPLING_STEP = 10
+        chunksize = 5000
+        
+        chnks = chnk(raw, chunksize, _SAMPLING_STEP)
+        newarr = [data for data in chnks]
+        
+        hrv_data = pd.DataFrame()
+        
+        for index, data in enumerate(newarr):
+            print(f'Calculating HRV features ... {(index/len(newarr))*100}%')
+            clean = nk.ecg_clean(data, sampling_rate=130)
+            peaks = nk.ecg_peaks(clean, sampling_rate=130)
+            hrv = nk.hrv_frequency(peaks[1], sampling_rate=130)
+            hrv["time"] = (index*_SAMPLING_STEP) * 1/_SAMPLING_RATE
+            hrv_data = pd.concat([hrv_data, hrv])
+        
+        def smooth_data(data, window_size):
+            return data.rolling(window=window_size, min_periods=1).mean()
+        
+        hrv_data["HRV_LFHF"] = smooth_data(hrv_data["HRV_LFHF"], window_size=90)
+        output_file = f"{name}_with_index.csv"
+        hrv_data.to_csv(output_file, index=False)
+        print(f"File saved as: {output_file}")
+    
+    except FileNotFoundError:
+        print(f"Error: File '{filepath}' not found.")
+    except ValueError as e:
+        print(f"Error: {e}")
+    except Exception as e:
+        print(f"Unexpected error in '{filepath}': {e}")
+
+# Open file dialog to select multiple CSV files
+tk.Tk().withdraw()
+files = filedialog.askopenfilenames(title="Select CSV Files", filetypes=[("CSV files", "*.csv")])
+
+if files:
+    for file in files:
+        process_file(file)
+else:
+    print("No files selected.")

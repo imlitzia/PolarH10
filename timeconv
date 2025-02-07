@@ -1,0 +1,36 @@
+import pandas as pd
+import os
+import tkinter as tk
+from tkinter import filedialog
+
+def process_file(filepath):
+    try:
+        name = os.path.splitext(os.path.basename(filepath))[0]
+        df = pd.read_csv(filepath)
+
+        if "time" not in df.columns:
+            raise ValueError(f"The file '{name}' does not contain a 'time' column.")
+
+        time = df["time"]
+        df["norm_time"] = (time - time.iloc[0]) / 1e10  # Normalize time
+
+        output_file = f"{name}_timeadjusted.csv"
+        df.to_csv(output_file, index=False)
+        print(f"File saved as: {output_file}")
+    
+    except FileNotFoundError:
+        print(f"Error: File '{filepath}' not found.")
+    except ValueError as e:
+        print(f"Error: {e}")
+    except Exception as e:
+        print(f"Unexpected error in '{filepath}': {e}")
+
+# Open file dialog to select multiple CSV files
+tk.Tk().withdraw()  # Hide the root window
+files = filedialog.askopenfilenames(title="Select CSV Files", filetypes=[("CSV files", "*.csv")])
+
+if files:
+    for file in files:
+        process_file(file)
+else:
+    print("No files selected.")

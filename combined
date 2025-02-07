@@ -1,0 +1,99 @@
+import numpy as np
+import pandas as pd
+import neurokit2 as nk
+import matplotlib.pyplot as plt
+import tkinter as tk
+from tkinter import filedialog
+import os
+
+def process_time_column(filepath):
+    try:
+        name = os.path.splitext(os.path.basename(filepath))[0]
+        df = pd.read_csv(filepath)
+
+        if "time" not in df.columns:
+            raise ValueError(f"The file '{name}' does not contain a 'time' column.")
+
+        time = df["time"]
+        df["norm_time"] = (time - time.iloc[0]) / 1e10  # Normalize time
+
+        output_file = f"{name}_timeadjusted.csv"
+        df.to_csv(output_file, index=False)
+        print(f"Time-adjusted file saved as: {output_file}")
+        return output_file
+    
+    except Exception as e:
+        print(f"Error processing time column in '{filepath}': {e}")
+        return None
+
+def chnk(lst, n, step):
+    """Yield successive n-sized chunks from lst."""
+    for i in range(0, len(lst)-n, step):
+        print(f'Chunking raw data ... {(i/len(lst))*100}%')
+        yield lst[i:i + n]
+
+def process_ecg_file(filepath):
+    try:
+        name = os.path.splitext(os.path.basename(filepath))[0]
+        df = pd.read_csv(filepath)
+        
+        if "HRV_LFHF" in df.columns:
+            print(f"File '{name}' already contains HRV data. Skipping processing and plotting graph.")
+            plot_hrv(df, name)
+            return
+        
+        if "ecg" not in df.columns:
+            raise ValueError(f"The file '{name}' does not contain an 'ecg' column.")
+        
+        raw = df["ecg"]
+        _SAMPLING_RATE = 100
+        _SAMPLING_STEP = 10
+        chunksize = 5000
+        
+        chnks = chnk(raw, chunksize, _SAMPLING_STEP)
+        newarr = [data for data in chnks]
+        
+        hrv_data = pd.DataFrame()
+        
+        for index, data in enumerate(newarr):
+            print(f'Calculating HRV features ... {(index/len(newarr))*100}%')
+            clean = nk.ecg_clean(data, sampling_rate=130)
+            peaks = nk.ecg_peaks(clean, sampling_rate=130)
+            hrv = nk.hrv_frequency(peaks[1], sampling_rate=130)
+            hrv["time"] = (index*_SAMPLING_STEP) * 1/_SAMPLING_RATE
+            hrv_data = pd.concat([hrv_data, hrv])
+        
+        def smooth_data(data, window_size):
+            return data.rolling(window=window_size, min_periods=1).mean()
+        
+        hrv_data["HRV_LFHF"] = smooth_data(hrv_data["HRV_LFHF"], window_size=90)
+        output_file = f"{name}_with_index.csv"
+        hrv_data.to_csv(output_file, index=False)
+        print(f"HRV data file saved as: {output_file}")
+        
+        plot_hrv(hrv_data, name)
+    
+    except Exception as e:
+        print(f"Error processing ECG file '{filepath}': {e}")
+
+def plot_hrv(df, name):
+    plt.figure()
+    plt.title(f"LFHF Ratio {name}")
+    plt.xlabel("Time(Sec)")
+    plt.ylabel("LFHF Ratio(mW)")
+    plt.text(150, 0.07, "Using Sampling Step:100", fontsize=6)
+    plt.grid(visible=True, which='major', axis='both')
+    plt.plot(df["time"], df["HRV_LFHF"])
+    plt.show()
+
+# Open file dialog to select multiple CSV files
+tk.Tk().withdraw()
+files = filedialog.askopenfilenames(title="Select CSV Files", filetypes=[("CSV files", "*.csv")])
+
+if files:
+    for file in files:
+        adjusted_file = process_time_column(file)
+        if adjusted_file:
+            process_ecg_file(adjusted_file)
+else:
+    print("No files selected.")

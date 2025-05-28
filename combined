@@ -3,10 +3,208 @@ import pandas as pd
 import neurokit2 as nk
 import matplotlib.pyplot as plt
 import tkinter as tk
-from tkinter import filedialog
+from tkinter import filedialog, messagebox, ttk
 import os
+import glob
 
-def process_time_column(filepath):
+class ProcessingOptionsUI:
+    def __init__(self, files):
+        self.files = files
+        self.remove_outliers = tk.BooleanVar(value=False)
+        self.apply_smoothing = tk.BooleanVar(value=True)
+        self.window_size = tk.IntVar(value=90)
+        self.root = None
+        self.setup_ui()
+    
+    def setup_ui(self):
+        self.root = tk.Tk()
+        self.root.title("Process Options")
+        self.root.geometry("700x700")  # Increased height
+        self.root.resizable(False, False)
+        self.root.configure(bg="#4b4545")  # Dark brown background
+        
+        # Main container frame with padding
+        main_frame = tk.Frame(self.root, bg="#4b4545", padx=20, pady=20)
+        main_frame.pack(fill='both', expand=True)
+        
+        # Title label
+        title_label = tk.Label(
+            main_frame, 
+            text="Process Options", 
+            font=("Arial", 36, "bold"),
+            fg="white",
+            bg="#4b4545"
+        )
+        title_label.pack(pady=(20, 60))
+        
+        # Option buttons frame
+        options_frame = tk.Frame(main_frame, bg="#4b4545")
+        options_frame.pack(pady=20)
+        
+        # Remove Outliers button (styled as a big button)
+        self.outlier_button = tk.Button(
+            options_frame,
+            text="Remove\nOutliers",
+            font=("Arial", 24, "bold"),
+            bg="white",
+            fg="black",
+            relief=tk.FLAT,
+            command=self.toggle_outliers,
+            width=12,
+            height=3,
+            bd=0,
+            highlightthickness=0
+        )
+        self.outlier_button.grid(row=0, column=0, padx=20)
+        
+        # Smoothing Average button (styled as a big button)
+        self.smoothing_button = tk.Button(
+            options_frame,
+            text="Smoothing\nAverage",
+            font=("Arial", 24, "bold"),
+            bg="white",
+            fg="black",
+            relief=tk.FLAT,
+            command=self.toggle_smoothing,
+            width=12,
+            height=3,
+            bd=0,
+            highlightthickness=0
+        )
+        self.smoothing_button.grid(row=0, column=1, padx=20)
+        
+        # Window size frame with label and entry
+        window_frame = tk.Frame(main_frame, bg="#4b4545")
+        window_frame.pack(pady=60)
+        
+        window_label = tk.Label(
+            window_frame, 
+            text="Window Size:", 
+            font=("Arial", 24),
+            fg="#f8c8cb",  # Light pink
+            bg="#4b4545"
+        )
+        window_label.pack(side=tk.LEFT)
+        
+        window_entry = tk.Entry(
+            window_frame, 
+            textvariable=self.window_size,
+            font=("Arial", 20),
+            width=8,
+            bd=0,
+            highlightthickness=1,
+            highlightbackground="white",
+            bg="white"
+        )
+        window_entry.pack(side=tk.LEFT, padx=10)
+        
+        # Bottom buttons frame
+        bottom_frame = tk.Frame(main_frame, bg="#4b4545")
+        bottom_frame.pack(pady=40)
+        
+        # Cancel button
+        cancel_button = tk.Button(
+            bottom_frame,
+            text="Cancel",
+            font=("Arial", 16, "bold"),
+            bg="white",
+            fg="black",
+            relief=tk.FLAT,
+            command=self.on_cancel,
+            width=10,
+            height=2,
+            bd=0,
+            highlightthickness=0
+        )
+        cancel_button.grid(row=0, column=0, padx=80)
+        
+        # Process button
+        process_button = tk.Button(
+            bottom_frame,
+            text="Process",
+            font=("Arial", 16, "bold"),
+            bg="white",
+            fg="black",
+            relief=tk.FLAT,
+            command=self.on_process,
+            width=10,
+            height=2,
+            bd=0,
+            highlightthickness=0
+        )
+        process_button.grid(row=0, column=1, padx=80)
+        
+        # Update button styles based on initial values
+        self.update_button_styles()
+        
+        # Force the window to update and redraw
+        self.root.update()
+        
+        # Center the window
+        self.center_window()
+        
+        self.root.mainloop()
+    
+    def center_window(self):
+        self.root.update_idletasks()
+        width = self.root.winfo_width()
+        height = self.root.winfo_height()
+        x = (self.root.winfo_screenwidth() // 2) - (width // 2)
+        y = (self.root.winfo_screenheight() // 2) - (height // 2)
+        self.root.geometry('{}x{}+{}+{}'.format(width, height, x, y))
+    
+    def toggle_outliers(self):
+        self.remove_outliers.set(not self.remove_outliers.get())
+        self.update_button_styles()
+    
+    def toggle_smoothing(self):
+        self.apply_smoothing.set(not self.apply_smoothing.get())
+        self.update_button_styles()
+    
+    def update_button_styles(self):
+        # Update outlier button style
+        if self.remove_outliers.get():
+            self.outlier_button.configure(bg="#4b4545", fg="white")
+        else:
+            self.outlier_button.configure(bg="white", fg="black")
+        
+        # Update smoothing button style
+        if self.apply_smoothing.get():
+            self.smoothing_button.configure(bg="#4b4545", fg="white")
+        else:
+            self.smoothing_button.configure(bg="white", fg="black")
+    
+    def on_cancel(self):
+        self.root.destroy()
+        print("Processing cancelled by user.")
+        exit()
+    
+    def on_process(self):
+        options = {
+            'remove_outliers': self.remove_outliers.get(),
+            'apply_smoothing': self.apply_smoothing.get(),
+            'window_size': self.window_size.get()
+        }
+        self.root.destroy()
+        batch_process_files(self.files, options)
+
+def get_next_version_folder():
+    # Find the highest existing version folder
+    existing_folders = glob.glob("V_*")
+    versions = [int(folder.split("_")[1]) for folder in existing_folders if folder.split("_")[1].isdigit()]
+    
+    if not versions:
+        next_version = 1
+    else:
+        next_version = max(versions) + 1
+    
+    # Create the new version folder
+    new_folder = f"V_{next_version}"
+    os.makedirs(new_folder, exist_ok=True)
+    print(f"Created output folder: {new_folder}")
+    return new_folder
+
+def process_time_column(filepath, output_folder):
     try:
         name = os.path.splitext(os.path.basename(filepath))[0]
         df = pd.read_csv(filepath)
@@ -17,30 +215,48 @@ def process_time_column(filepath):
         time = df["time"]
         df["norm_time"] = (time - time.iloc[0]) / 1e10  # Normalize time
 
-        output_file = f"{name}_timeadjusted.csv"
+        output_file = os.path.join(output_folder, f"{name}_timeadjusted.csv")
         df.to_csv(output_file, index=False)
         print(f"Time-adjusted file saved as: {output_file}")
-        return output_file
+        return output_file, df
     
     except Exception as e:
         print(f"Error processing time column in '{filepath}': {e}")
-        return None
+        return None, None
 
 def chnk(lst, n, step):
     """Yield successive n-sized chunks from lst."""
     for i in range(0, len(lst)-n, step):
-        print(f'Chunking raw data ... {(i/len(lst))*100}%')
+        print(f'Chunking raw data ... {(i/len(lst))*100:.1f}%')
         yield lst[i:i + n]
 
-def process_ecg_file(filepath):
+def remove_outliers_from_data(hrv_data):
+    """Remove outliers from HRV data using IQR method"""
+    for col in ['HRV_LF', 'HRV_HF', 'HRV_LFHF']:
+        if col in hrv_data.columns:
+            Q1 = hrv_data[col].quantile(0.25)
+            Q3 = hrv_data[col].quantile(0.75)
+            IQR = Q3 - Q1
+            lower_bound = Q1 - 1.5 * IQR
+            upper_bound = Q3 + 1.5 * IQR
+            
+            # Create a mask for values that are not outliers
+            mask = (hrv_data[col] >= lower_bound) & (hrv_data[col] <= upper_bound)
+            
+            # Replace outliers with NaN and then interpolate
+            hrv_data.loc[~mask, col] = np.nan
+            hrv_data[col] = hrv_data[col].interpolate(method='linear')
+    
+    return hrv_data
+
+def smooth_data(data, window_size):
+    return data.rolling(window=window_size, min_periods=1).mean()
+
+def process_ecg_file(df, name, output_folder, options):
     try:
-        name = os.path.splitext(os.path.basename(filepath))[0]
-        df = pd.read_csv(filepath)
-        
         if "HRV_LFHF" in df.columns:
             print(f"File '{name}' already contains HRV data. Skipping processing and plotting graph.")
-            plot_hrv(df, name)
-            return
+            return df
         
         if "ecg" not in df.columns:
             raise ValueError(f"The file '{name}' does not contain an 'ecg' column.")
@@ -56,44 +272,89 @@ def process_ecg_file(filepath):
         hrv_data = pd.DataFrame()
         
         for index, data in enumerate(newarr):
-            print(f'Calculating HRV features ... {(index/len(newarr))*100}%')
+            print(f'Calculating HRV features for {name} ... {(index/len(newarr))*100:.1f}%')
             clean = nk.ecg_clean(data, sampling_rate=130)
             peaks = nk.ecg_peaks(clean, sampling_rate=130)
             hrv = nk.hrv_frequency(peaks[1], sampling_rate=130)
             hrv["time"] = (index*_SAMPLING_STEP) * 1/_SAMPLING_RATE
             hrv_data = pd.concat([hrv_data, hrv])
         
-        def smooth_data(data, window_size):
-            return data.rolling(window=window_size, min_periods=1).mean()
+        # Apply outlier removal if selected
+        if options['remove_outliers']:
+            print(f"Removing outliers from {name}...")
+            hrv_data = remove_outliers_from_data(hrv_data)
         
-        hrv_data["HRV_LFHF"] = smooth_data(hrv_data["HRV_LFHF"], window_size=90)
-        output_file = f"{name}_with_index.csv"
+        # Apply smoothing if selected
+        if options['apply_smoothing']:
+            window_size = options['window_size']
+            print(f"Applying smoothing with window size {window_size} to {name}...")
+            hrv_data["HRV_LFHF"] = smooth_data(hrv_data["HRV_LFHF"], window_size=window_size)
+        
+        output_file = os.path.join(output_folder, f"{name}_with_hrv.csv")
         hrv_data.to_csv(output_file, index=False)
         print(f"HRV data file saved as: {output_file}")
         
-        plot_hrv(hrv_data, name)
+        return hrv_data
     
     except Exception as e:
-        print(f"Error processing ECG file '{filepath}': {e}")
+        print(f"Error processing ECG data for '{name}': {e}")
+        return None
 
-def plot_hrv(df, name):
-    plt.figure()
+def plot_hrv(df, name, output_folder, options):
+    plt.figure(figsize=(10, 6))
     plt.title(f"LFHF Ratio {name}")
     plt.xlabel("Time(Sec)")
     plt.ylabel("LFHF Ratio(mW)")
-    plt.text(150, 0.07, "Using Sampling Step:100", fontsize=6)
+    
+    # Add processing information
+    info_text = f"Outlier Removal: {'Yes' if options['remove_outliers'] else 'No'}\n"
+    info_text += f"Smoothing: {'Yes' if options['apply_smoothing'] else 'No'}"
+    if options['apply_smoothing']:
+        info_text += f" (Window: {options['window_size']})"
+    
+    plt.text(0.02, 0.02, info_text, fontsize=8, transform=plt.gcf().transFigure)
+    
     plt.grid(visible=True, which='major', axis='both')
     plt.plot(df["time"], df["HRV_LFHF"])
-    plt.show()
+    
+    # Save the plot to file instead of showing it
+    plot_file = os.path.join(output_folder, f"{name}_hrv_plot.png")
+    plt.savefig(plot_file, dpi=300, bbox_inches='tight')
+    plt.close()
+    print(f"HRV plot saved as: {plot_file}")
+
+def batch_process_files(files, options):
+    # Create version folder
+    output_folder = get_next_version_folder()
+    
+    # Save processing options to a text file
+    with open(os.path.join(output_folder, "processing_options.txt"), "w") as f:
+        f.write(f"Remove Outliers: {options['remove_outliers']}\n")
+        f.write(f"Apply Smoothing: {options['apply_smoothing']}\n")
+        f.write(f"Smoothing Window Size: {options['window_size']}\n")
+    
+    # First pass: process time columns for all files
+    adjusted_files = []
+    for file in files:
+        adjusted_file, df = process_time_column(file, output_folder)
+        if adjusted_file:
+            adjusted_files.append((adjusted_file, df, os.path.splitext(os.path.basename(adjusted_file))[0]))
+    
+    # Second pass: process all ECG data
+    for adjusted_file, df, name in adjusted_files:
+        hrv_data = process_ecg_file(df, name, output_folder, options)
+        if hrv_data is not None:
+            plot_hrv(hrv_data, name, output_folder, options)
+    
+    print(f"Batch processing complete. All results saved in {output_folder}")
 
 # Open file dialog to select multiple CSV files
-tk.Tk().withdraw()
+root = tk.Tk()
+root.withdraw()
 files = filedialog.askopenfilenames(title="Select CSV Files", filetypes=[("CSV files", "*.csv")])
 
 if files:
-    for file in files:
-        adjusted_file = process_time_column(file)
-        if adjusted_file:
-            process_ecg_file(adjusted_file)
+    # Show processing options UI
+    ProcessingOptionsUI(files)
 else:
     print("No files selected.")

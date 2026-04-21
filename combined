@@ -7,6 +7,12 @@ from tkinter import filedialog, messagebox, ttk
 import os
 import glob
 
+def get_first_matching_column(df, candidates):
+    for col in candidates:
+        if col in df.columns:
+            return col
+    return None
+
 class ProcessingOptionsUI:
     def __init__(self, files):
         self.files = files
@@ -209,10 +215,19 @@ def process_time_column(filepath, output_folder):
         name = os.path.splitext(os.path.basename(filepath))[0]
         df = pd.read_csv(filepath)
 
-        if "time" not in df.columns:
-            raise ValueError(f"The file '{name}' does not contain a 'time' column.")
+        time_col = get_first_matching_column(df, ["time", "Time", "UNIX Timestamp", "timestamp"])
+        if time_col is None:
+            raise ValueError(
+                f"The file '{name}' does not contain a supported time column "
+                f"(time/Time/UNIX Timestamp/timestamp)."
+            )
 
-        time = df["time"]
+        time = pd.to_numeric(df[time_col], errors="coerce")
+        if time.isna().all():
+            raise ValueError(f"The time column '{time_col}' in '{name}' is not numeric.")
+
+        # Keep a standard lowercase name for downstream processing.
+        df["time"] = time
         df["norm_time"] = (time - time.iloc[0]) / 1e10  # Normalize time
 
         output_file = os.path.join(output_folder, f"{name}_timeadjusted.csv")
@@ -258,10 +273,14 @@ def process_ecg_file(df, name, output_folder, options):
             print(f"File '{name}' already contains HRV data. Skipping processing and plotting graph.")
             return df
         
-        if "ecg" not in df.columns:
-            raise ValueError(f"The file '{name}' does not contain an 'ecg' column.")
+        ecg_col = get_first_matching_column(df, ["ecg", "ECG"])
+        if ecg_col is None:
+            raise ValueError(f"The file '{name}' does not contain an ECG column (ecg/ECG).")
         
-        raw = df["ecg"]
+        raw = pd.to_numeric(df[ecg_col], errors="coerce")
+        raw = raw.dropna()
+        if raw.empty:
+            raise ValueError(f"The ECG column '{ecg_col}' in '{name}' does not contain numeric values.")
         _SAMPLING_RATE = 100
         _SAMPLING_STEP = 10
         chunksize = 5000

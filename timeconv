@@ -8,14 +8,50 @@ def process_file(filepath):
         name = os.path.splitext(os.path.basename(filepath))[0]
         df = pd.read_csv(filepath)
 
-        if "time" not in df.columns:
-            raise ValueError(f"The file '{name}' does not contain a 'time' column.")
+        timestamp_col = None
+        for candidate in ["UNIX Timestamp", "time", "timestamp", "unix_time"]:
+            if candidate in df.columns:
+                timestamp_col = candidate
+                break
 
-        time = df["time"]
-        df["norm_time"] = (time - time.iloc[0]) / 1e10  # Normalize time
+        if timestamp_col is None:
+            raise ValueError(
+                f"The file '{name}' does not contain a supported timestamp column "
+                f"(expected one of: UNIX Timestamp, time, timestamp, unix_time)."
+            )
 
-        output_file = f"{name}_timeadjusted.csv"
+        raw_time = pd.to_numeric(df[timestamp_col], errors="coerce")
+        if raw_time.isna().all():
+            raise ValueError(f"Timestamp column '{timestamp_col}' in '{name}' is not numeric.")
+
+        # Detect unit from magnitude: Polar exports are often nanoseconds.
+        max_abs = raw_time.dropna().abs().max()
+        if max_abs >= 1e17:
+            unit = "ns"
+        elif max_abs >= 1e14:
+            unit = "us"
+        elif max_abs >= 1e11:
+            unit = "ms"
+        else:
+            unit = "s"
+
+        # Convert UNIX epoch to timezone-aware UTC datetimes.
+        dt_utc = pd.to_datetime(raw_time, unit=unit, origin="unix", utc=True)
+        # Also include a local-time view for easier reading.
+        dt_local = dt_utc.dt.tz_convert(None)
+
+        df["datetime_utc"] = dt_utc.dt.strftime("%Y-%m-%d %H:%M:%S.%f UTC")
+        df["datetime_local"] = dt_local.dt.strftime("%Y-%m-%d %H:%M:%S.%f")
+        df["elapsed_seconds"] = (raw_time - raw_time.iloc[0]) / {
+            "ns": 1e9,
+            "us": 1e6,
+            "ms": 1e3,
+            "s": 1.0,
+        }[unit]
+
+        output_file = f"{name}_time_converted.csv"
         df.to_csv(output_file, index=False)
+        print(f"Processed '{name}' using unit '{unit}'.")
         print(f"File saved as: {output_file}")
     
     except FileNotFoundError:

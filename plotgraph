@@ -2,6 +2,7 @@ import numpy as np
 import pandas as pd
 import neurokit2 as nk
 import matplotlib.pyplot as plt
+from matplotlib.ticker import FuncFormatter
 import tkinter as tk
 from tkinter import filedialog
 import os
@@ -60,14 +61,23 @@ def process_file(filepath):
     except Exception as e:
         print(f"Unexpected error in '{filepath}': {e}")
 
+def format_elapsed_time(seconds, _position=None):
+    """Format elapsed seconds as HH:MM:SS for plot axis labels."""
+    total_seconds = max(0, int(round(seconds)))
+    hours, remainder = divmod(total_seconds, 3600)
+    minutes, seconds = divmod(remainder, 60)
+    return f"{hours:02d}:{minutes:02d}:{seconds:02d}"
+
 def plot_hrv(df, name):
-    plt.figure()
+    fig, ax = plt.subplots()
     plt.title(f"LFHF Ratio {name}")
-    plt.xlabel("Time(Sec)")
+    plt.xlabel("Elapsed Time (HH:MM:SS)")
     plt.ylabel("LFHF Ratio(mW)")
     plt.text(150, 0.07, "Using Sampling Step:100", fontsize=6)
     plt.grid(visible=True, which='major', axis='both')
     plt.plot(df["time"], df["HRV_LFHF"])
+    ax.xaxis.set_major_formatter(FuncFormatter(format_elapsed_time))
+    fig.autofmt_xdate(rotation=30, ha="right")
     plt.show()
 
 # Open file dialog to select multiple CSV files

@@ -2,6 +2,7 @@ import numpy as np
 import pandas as pd
 import neurokit2 as nk
 import matplotlib.pyplot as plt
+from matplotlib.ticker import FuncFormatter
 import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
 import os
@@ -267,6 +268,13 @@ def remove_outliers_from_data(hrv_data):
 def smooth_data(data, window_size):
     return data.rolling(window=window_size, min_periods=1).mean()
 
+def format_elapsed_time(seconds, _position=None):
+    """Format elapsed seconds as HH:MM:SS for plot axis labels."""
+    total_seconds = max(0, int(round(seconds)))
+    hours, remainder = divmod(total_seconds, 3600)
+    minutes, seconds = divmod(remainder, 60)
+    return f"{hours:02d}:{minutes:02d}:{seconds:02d}"
+
 def process_ecg_file(df, name, output_folder, options):
     try:
         if "HRV_LFHF" in df.columns:
@@ -320,9 +328,9 @@ def process_ecg_file(df, name, output_folder, options):
         return None
 
 def plot_hrv(df, name, output_folder, options):
-    plt.figure(figsize=(10, 6))
+    fig, ax = plt.subplots(figsize=(10, 6))
     plt.title(f"LFHF Ratio {name}")
-    plt.xlabel("Time(Sec)")
+    plt.xlabel("Elapsed Time (HH:MM:SS)")
     plt.ylabel("LFHF Ratio(mW)")
     
     # Add processing information
@@ -335,6 +343,8 @@ def plot_hrv(df, name, output_folder, options):
     
     plt.grid(visible=True, which='major', axis='both')
     plt.plot(df["time"], df["HRV_LFHF"])
+    ax.xaxis.set_major_formatter(FuncFormatter(format_elapsed_time))
+    fig.autofmt_xdate(rotation=30, ha="right")
     
     # Save the plot to file instead of showing it
     plot_file = os.path.join(output_folder, f"{name}_hrv_plot.png")

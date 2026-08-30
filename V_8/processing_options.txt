@@ -1,0 +1,3 @@
+Remove Outliers: True
+Apply Smoothing: False
+Smoothing Window Size: 90

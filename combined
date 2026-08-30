@@ -2,11 +2,14 @@ import numpy as np
 import pandas as pd
 import neurokit2 as nk
 import matplotlib.pyplot as plt
-from matplotlib.ticker import FuncFormatter
+from matplotlib.dates import DateFormatter
 import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
 import os
 import glob
+from zoneinfo import ZoneInfo
+
+LOCAL_TIMEZONE = ZoneInfo("Asia/Tokyo")
 
 def get_first_matching_column(df, candidates):
     for col in candidates:
@@ -268,12 +271,19 @@ def remove_outliers_from_data(hrv_data):
 def smooth_data(data, window_size):
     return data.rolling(window=window_size, min_periods=1).mean()
 
-def format_elapsed_time(seconds, _position=None):
-    """Format elapsed seconds as HH:MM:SS for plot axis labels."""
-    total_seconds = max(0, int(round(seconds)))
-    hours, remainder = divmod(total_seconds, 3600)
-    minutes, seconds = divmod(remainder, 60)
-    return f"{hours:02d}:{minutes:02d}:{seconds:02d}"
+def unix_timestamp_to_local_datetime(value):
+    """Convert a Unix timestamp to an Asia/Tokyo datetime, inferring its unit."""
+    value = float(value)
+    magnitude = abs(value)
+    if magnitude >= 1e17:
+        unit = "ns"
+    elif magnitude >= 1e14:
+        unit = "us"
+    elif magnitude >= 1e11:
+        unit = "ms"
+    else:
+        unit = "s"
+    return pd.to_datetime(value, unit=unit, utc=True).tz_convert(LOCAL_TIMEZONE)
 
 def process_ecg_file(df, name, output_folder, options):
     try:
@@ -292,6 +302,7 @@ def process_ecg_file(df, name, output_folder, options):
         _SAMPLING_RATE = 100
         _SAMPLING_STEP = 10
         chunksize = 5000
+        recording_start = unix_timestamp_to_local_datetime(df["time"].iloc[0])
         
         chnks = chnk(raw, chunksize, _SAMPLING_STEP)
         newarr = [data for data in chnks]
@@ -304,6 +315,7 @@ def process_ecg_file(df, name, output_folder, options):
             peaks = nk.ecg_peaks(clean, sampling_rate=130)
             hrv = nk.hrv_frequency(peaks[1], sampling_rate=130)
             hrv["time"] = (index*_SAMPLING_STEP) * 1/_SAMPLING_RATE
+            hrv["time_of_day"] = recording_start + pd.to_timedelta(hrv["time"], unit="s")
             hrv_data = pd.concat([hrv_data, hrv])
         
         # Apply outlier removal if selected
@@ -330,7 +342,7 @@ def process_ecg_file(df, name, output_folder, options):
 def plot_hrv(df, name, output_folder, options):
     fig, ax = plt.subplots(figsize=(10, 6))
     plt.title(f"LFHF Ratio {name}")
-    plt.xlabel("Elapsed Time (HH:MM:SS)")
+    plt.xlabel("Time of Day (HH:MM:SS, Asia/Tokyo)")
     plt.ylabel("LFHF Ratio(mW)")
     
     # Add processing information
@@ -342,8 +354,9 @@ def plot_hrv(df, name, output_folder, options):
     plt.text(0.02, 0.02, info_text, fontsize=8, transform=plt.gcf().transFigure)
     
     plt.grid(visible=True, which='major', axis='both')
-    plt.plot(df["time"], df["HRV_LFHF"])
-    ax.xaxis.set_major_formatter(FuncFormatter(format_elapsed_time))
+    plot_times = pd.to_datetime(df["time_of_day"])
+    plt.plot(plot_times, df["HRV_LFHF"])
+    ax.xaxis.set_major_formatter(DateFormatter("%H:%M:%S", tz=LOCAL_TIMEZONE))
     fig.autofmt_xdate(rotation=30, ha="right")
     
     # Save the plot to file instead of showing it

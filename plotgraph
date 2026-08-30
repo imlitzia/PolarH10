@@ -2,10 +2,27 @@ import numpy as np
 import pandas as pd
 import neurokit2 as nk
 import matplotlib.pyplot as plt
-from matplotlib.ticker import FuncFormatter
+from matplotlib.dates import DateFormatter
 import tkinter as tk
 from tkinter import filedialog
 import os
+from zoneinfo import ZoneInfo
+
+LOCAL_TIMEZONE = ZoneInfo("Asia/Tokyo")
+
+def unix_timestamp_to_local_datetime(value):
+    """Convert a Unix timestamp to an Asia/Tokyo datetime, inferring its unit."""
+    value = float(value)
+    magnitude = abs(value)
+    if magnitude >= 1e17:
+        unit = "ns"
+    elif magnitude >= 1e14:
+        unit = "us"
+    elif magnitude >= 1e11:
+        unit = "ms"
+    else:
+        unit = "s"
+    return pd.to_datetime(value, unit=unit, utc=True).tz_convert(LOCAL_TIMEZONE)
 
 def chnk(lst, n, step):
     """Yield successive n-sized chunks from lst."""
@@ -30,6 +47,10 @@ def process_file(filepath):
         _SAMPLING_RATE = 100
         _SAMPLING_STEP = 10
         chunksize = 5000
+        time_col = next((column for column in ("time", "Time", "UNIX Timestamp", "timestamp") if column in df.columns), None)
+        if time_col is None:
+            raise ValueError(f"The file '{name}' does not contain a supported time column.")
+        recording_start = unix_timestamp_to_local_datetime(df[time_col].iloc[0])
         
         chnks = chnk(raw, chunksize, _SAMPLING_STEP)
         newarr = [data for data in chnks]
@@ -42,6 +63,7 @@ def process_file(filepath):
             peaks = nk.ecg_peaks(clean, sampling_rate=130)
             hrv = nk.hrv_frequency(peaks[1], sampling_rate=130)
             hrv["time"] = (index*_SAMPLING_STEP) * 1/_SAMPLING_RATE
+            hrv["time_of_day"] = recording_start + pd.to_timedelta(hrv["time"], unit="s")
             hrv_data = pd.concat([hrv_data, hrv])
         
         def smooth_data(data, window_size):
@@ -61,22 +83,18 @@ def process_file(filepath):
     except Exception as e:
         print(f"Unexpected error in '{filepath}': {e}")
 
-def format_elapsed_time(seconds, _position=None):
-    """Format elapsed seconds as HH:MM:SS for plot axis labels."""
-    total_seconds = max(0, int(round(seconds)))
-    hours, remainder = divmod(total_seconds, 3600)
-    minutes, seconds = divmod(remainder, 60)
-    return f"{hours:02d}:{minutes:02d}:{seconds:02d}"
-
 def plot_hrv(df, name):
     fig, ax = plt.subplots()
     plt.title(f"LFHF Ratio {name}")
-    plt.xlabel("Elapsed Time (HH:MM:SS)")
+    plt.xlabel("Time of Day (HH:MM:SS, Asia/Tokyo)")
     plt.ylabel("LFHF Ratio(mW)")
     plt.text(150, 0.07, "Using Sampling Step:100", fontsize=6)
     plt.grid(visible=True, which='major', axis='both')
-    plt.plot(df["time"], df["HRV_LFHF"])
-    ax.xaxis.set_major_formatter(FuncFormatter(format_elapsed_time))
+    if "time_of_day" not in df.columns:
+        raise ValueError("The HRV file does not contain a 'time_of_day' column. Reprocess the raw CSV first.")
+    plot_times = pd.to_datetime(df["time_of_day"])
+    plt.plot(plot_times, df["HRV_LFHF"])
+    ax.xaxis.set_major_formatter(DateFormatter("%H:%M:%S", tz=LOCAL_TIMEZONE))
     fig.autofmt_xdate(rotation=30, ha="right")
     plt.show()
 

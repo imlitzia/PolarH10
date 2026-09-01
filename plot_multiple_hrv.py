@@ -18,7 +18,7 @@ if hasattr(sys.stdout, "reconfigure"):
 
 TIME_COLUMN = "time"
 VALUE_COLUMN = "HRV_LFHF"
-PROGRAM_VERSION = "2026-08-31-v6"
+PROGRAM_VERSION = "2026-09-01-v8"
 ECG_COLUMNS = ("ecg", "ECG")
 RAW_TIME_COLUMNS = ("time", "Time", "UNIX Timestamp", "timestamp")
 ECG_SAMPLING_RATE = 130
@@ -68,6 +68,64 @@ def find_latest_processed_files():
         if files:
             return files
     return []
+
+
+def find_all_processed_files():
+    """Return HRV result files from every numbered V_* folder."""
+    version_directories = []
+    for directory in Path.cwd().glob("V_*"):
+        if not directory.is_dir():
+            continue
+        try:
+            version_number = int(directory.name.split("_", 1)[1])
+        except (IndexError, ValueError):
+            continue
+        version_directories.append((version_number, directory))
+
+    files = []
+    for _version, directory in sorted(version_directories):
+        files.extend(sorted(directory.glob("*_with_hrv.csv")))
+    return files
+
+
+def parse_file_selection(selection, file_count):
+    """Parse selections such as '1,3,5' or '1-3' into zero-based indices."""
+    selected = set()
+    for part in selection.replace(" ", "").split(","):
+        if not part:
+            continue
+        if "-" in part:
+            start_text, end_text = part.split("-", 1)
+            start, end = int(start_text), int(end_text)
+            if start > end:
+                start, end = end, start
+            selected.update(range(start, end + 1))
+        else:
+            selected.add(int(part))
+
+    if not selected or min(selected) < 1 or max(selected) > file_count:
+        raise ValueError(f"Choose numbers from 1 to {file_count}.")
+    return [index - 1 for index in sorted(selected)]
+
+
+def choose_processed_files(files):
+    """Let the user choose processed files from a numbered terminal list."""
+    print("\nAvailable HRV files:", flush=True)
+    for index, filepath in enumerate(files, start=1):
+        display_name = filepath.name.replace("\u202f", " ")
+        print(f"  {index}. [{filepath.parent.name}] {display_name}", flush=True)
+
+    while True:
+        selection = input(
+            "\nFiles to graph (example: 1,3,5 or 1-3; Enter = all): "
+        ).strip()
+        if not selection or selection.casefold() == "all":
+            return files
+        try:
+            indices = parse_file_selection(selection, len(files))
+            return [files[index] for index in indices]
+        except (ValueError, TypeError) as error:
+            print(f"Invalid selection: {error}", flush=True)
 
 
 def timestamp_scale(values):
@@ -261,14 +319,14 @@ def main():
     # this machine. Accept explicit paths, or use the newest processed folder.
     files = [Path(argument) for argument in sys.argv[1:]]
     if not files:
-        files = find_latest_processed_files()
+        files = find_all_processed_files()
         if not files:
             raise FileNotFoundError("No processed *_with_hrv.csv files were found.")
         print(
-            f"No file paths supplied; automatically using {len(files)} "
-            f"processed files from {Path(files[0]).parent}.",
+            f"Found {len(files)} processed files across all V_* folders.",
             flush=True,
         )
+        files = choose_processed_files(files)
 
     print("Files to plot:", flush=True)
     for filepath in files:
@@ -281,7 +339,10 @@ def main():
         print(f"Loading: {display_name}", flush=True)
         try:
             times, values = load_hrv_file(filepath)
-            plot_label = Path(filepath).stem.replace("\u202f", " ")
+            plot_label = (
+                f"{Path(filepath).parent.name}: "
+                f"{Path(filepath).stem.replace(chr(0x202f), ' ')}"
+            )
             recordings.append((times, values, plot_label))
             print(f"Loaded {len(values)} HRV points", flush=True)
         except Exception as error:

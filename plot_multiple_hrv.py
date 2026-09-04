@@ -300,12 +300,12 @@ def plot_recordings(recordings, average_time, average_values):
         label=f"Average ({len(recordings)} files)",
         zorder=10,
     )
-    axis.set_title("HRV LF/HF Trends Aligned at Start")
-    axis.set_xlabel("Elapsed Time (seconds)")
-    axis.set_ylabel("LF/HF Ratio")
+    axis.set_title("HRV LF/HF Trends Aligned at Start", fontsize=0)
+    axis.set_xlabel("Time (seconds)", fontsize=30)
+    axis.set_ylabel("LF/HF Ratio", fontsize=30)
+    axis.tick_params(axis="both", labelsize=25)
     axis.set_xlim(0, shared_end_time)
     axis.grid(True, alpha=0.3)
-    axis.legend(fontsize=8)
     figure.tight_layout()
     return figure
 
